@@ -36,8 +36,20 @@ jobs:
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/><application#' $M
           sed -i 's#android:label="[^"]*"#android:label="ProWalkie"#' $M
           for p in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            cp app_src/icons/ic_${p##*:}.png android/app/src/main/res/mipmap-${p%%:*}/ic_launcher.png
+            cp app_src/icons/ic_${p##:}.png android/app/src/main/res/mipmap-${p%%:}/ic_launcher.png
           done
+      - name: Force compileSdk for plugins (fix agora android-31)
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/sdk.gradle <<'GRADLE'
+          allprojects {
+            afterEvaluate { p ->
+              if (p.hasProperty('android')) {
+                try { p.android.compileSdkVersion 36 } catch (e) { println "skip ${p.name}: ${e.message}" }
+              }
+            }
+          }
+          GRADLE
       - run: flutter pub get
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
