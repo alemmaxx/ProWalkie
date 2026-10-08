@@ -1,0 +1,46 @@
+name: Build ProWalkie APK
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - name: Convert fonts (woff2 to ttf)
+        run: |
+          pip install fonttools brotli
+          mkdir -p assets/fonts
+          python3 - <<'PY'
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib.instancer import instantiateVariableFont
+          for w in (500, 600, 700):
+              f = TTFont('fonts_src/Fredoka-500_700.woff2')
+              if 'fvar' in f:
+                  f = instantiateVariableFont(f, {'wght': w})
+              f.flavor = None
+              f.save(f'assets/fonts/Fredoka-{w}.ttf')
+          for w in ('400', '700'):
+              f = TTFont(f'fonts_src/Andika-{w}.woff2')
+              f.flavor = None
+              f.save(f'assets/fonts/Andika-{w}.ttf')
+          PY
+      - name: Generate android project
+        run: |
+          flutter create --org com.prowalkie --project-name prowalkie --platforms android .
+          cp app_src/pubspec.yaml pubspec.yaml
+          rm -rf lib test && mkdir lib && cp app_src/lib/* lib/
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/><application#' $M
+          sed -i 's#android:label="[^"]*"#android:label="ProWalkie"#' $M
+          for p in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            cp app_src/icons/ic_${p##*:}.png android/app/src/main/res/mipmap-${p%%:*}/ic_launcher.png
+          done
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prowalkie-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
