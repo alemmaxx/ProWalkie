@@ -31,12 +31,13 @@ jobs:
         run: |
           flutter create --org com.prowalkie --project-name prowalkie --platforms android .
           cp app_src/pubspec.yaml pubspec.yaml
-          rm -rf lib test && mkdir lib && cp app_src/lib/* lib/
+          rm -rf lib test && mkdir lib && cp -r app_src/lib/. lib/
           M=android/app/src/main/AndroidManifest.xml
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/><application#' $M
-          sed -i 's#android:label="[^"]*"#android:label="ProWalkie"#' $M
-          for p in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            cp app_src/icons/ic_${p##:}.png android/app/src/main/res/mipmap-${p%%:}/ic_launcher.png
+          sed -i 's#android:label="[^"]\{0,\}"#android:label="ProWalkie"#' $M
+          for p in "mdpi 48" "hdpi 72" "xhdpi 96" "xxhdpi 144" "xxxhdpi 192"; do
+            set -- $p
+            cp app_src/icons/ic_$2.png android/app/src/main/res/mipmap-$1/ic_launcher.png
           done
       - name: Force compileSdk for plugins (fix agora android-31)
         run: |
