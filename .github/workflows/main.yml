@@ -3,6 +3,8 @@ on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -52,8 +54,16 @@ jobs:
           }
           GRADLE
       - run: flutter pub get
-      - run: flutter build apk --release --dart-define=AGORA_CERT=${{ secrets.AGORA_CERT }}
+      - run: flutter build apk --release --split-per-abi --dart-define=AGORA_CERT=${{ secrets.AGORA_CERT }}
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          D=build/app/outputs/flutter-apk
+          cp $D/app-arm64-v8a-release.apk ProWalkie-arm64.apk
+          cp $D/app-armeabi-v7a-release.apk ProWalkie-arm32.apk
+          gh release create "v${{ github.run_number }}-${{ github.run_attempt }}" ProWalkie-arm64.apk ProWalkie-arm32.apk --target "${{ github.sha }}" --title "ProWalkie build ${{ github.run_number }}" --notes "Pasang ProWalkie-arm64.apk untuk kebanyakan telefon. Guna ProWalkie-arm32.apk hanya untuk telefon lama."
       - uses: actions/upload-artifact@v4
         with:
           name: prowalkie-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/
