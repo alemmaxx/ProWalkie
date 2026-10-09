@@ -1,4 +1,5 @@
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:agora_token_service/agora_token_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -182,10 +183,13 @@ class Talk extends StatefulWidget {
   State<Talk> createState() => _TalkState();
 }
 
-class _TalkState extends State<Talk> {
+class _TalkState extends State<Talk> with SingleTickerProviderStateMixin {
   RtcEngine? engine;
   final remote = <int>{};
   bool talking = false, ready = false;
+  String? err;
+  late final AnimationController pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900));
 
   @override
   void initState() {
@@ -194,42 +198,76 @@ class _TalkState extends State<Talk> {
   }
 
   Future<void> _start() async {
-    await Permission.microphone.request();
-    final e = createAgoraRtcEngine();
-    engine = e;
-    await e.initialize(const RtcEngineContext(
-        appId: agoraAppId,
-        channelProfile: ChannelProfileType.channelProfileCommunication));
-    e.registerEventHandler(RtcEngineEventHandler(
-      onUserJoined: (c, u, el) {
-        if (mounted) setState(() => remote.add(u));
-      },
-      onUserOffline: (c, u, r) {
-        if (mounted) setState(() => remote.remove(u));
-      },
-    ));
-    await e.enableAudio();
-    await e.setEnableSpeakerphone(true);
-    await e.muteLocalAudioStream(true);
-    await e.joinChannel(
-        token: '',
-        channelId: widget.id,
-        uid: 0,
-        options: const ChannelMediaOptions(
-            clientRoleType: ClientRoleType.clientRoleBroadcaster,
-            autoSubscribeAudio: true,
-            publishMicrophoneTrack: true));
-    if (mounted) setState(() => ready = true);
+    try {
+      await Permission.microphone.request();
+      final e = createAgoraRtcEngine();
+      engine = e;
+      await e.initialize(const RtcEngineContext(
+          appId: agoraAppId,
+          channelProfile: ChannelProfileType.channelProfileCommunication));
+      e.registerEventHandler(RtcEngineEventHandler(
+        onJoinChannelSuccess: (c, el) {
+          if (mounted) setState(() => ready = true);
+        },
+        onError: (code, msg) {
+          if (mounted) setState(() => err = 'Ralat $code $msg');
+        },
+        onConnectionStateChanged: (c, state, reason) {
+          if (mounted && state == ConnectionStateType.connectionStateFailed) {
+            setState(() => err = 'Gagal sambung: $reason');
+          }
+        },
+        onUserJoined: (c, u, el) {
+          if (mounted) setState(() => remote.add(u));
+        },
+        onUserOffline: (c, u, r) {
+          if (mounted) setState(() => remote.remove(u));
+        },
+      ));
+      await e.enableAudio();
+      await e.setEnableSpeakerphone(true);
+      await e.muteLocalAudioStream(true);
+      var token = '';
+      if (agoraCertificate.isNotEmpty) {
+        token = RtcTokenBuilder.build(
+          appId: agoraAppId,
+          appCertificate: agoraCertificate,
+          channelName: widget.id,
+          uid: '0',
+          role: RtcRole.publisher,
+          expireTimestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000 + 86400,
+        );
+      }
+      await e.joinChannel(
+          token: token,
+          channelId: widget.id,
+          uid: 0,
+          options: const ChannelMediaOptions(
+              clientRoleType: ClientRoleType.clientRoleBroadcaster,
+              autoSubscribeAudio: true,
+              publishMicrophoneTrack: true));
+    } catch (ex) {
+      if (mounted) setState(() => err = 'Ralat: $ex');
+    }
   }
 
   Future<void> _talk(bool on) async {
-    if (!ready) return;
-    await engine?.muteLocalAudioStream(!on);
-    if (mounted) setState(() => talking = on);
+    if (talking == on) return;
+    if (on) {
+      HapticFeedback.heavyImpact();
+      pulse.repeat();
+    } else {
+      HapticFeedback.lightImpact();
+      pulse.stop();
+      pulse.reset();
+    }
+    setState(() => talking = on);
+    if (ready) await engine?.muteLocalAudioStream(!on);
   }
 
   @override
   void dispose() {
+    pulse.dispose();
     engine?.leaveChannel();
     engine?.release();
     super.dispose();
@@ -256,8 +294,9 @@ class _TalkState extends State<Talk> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(widget.title, style: disp(30), textAlign: TextAlign.center),
               const SizedBox(height: 6),
-              Text(ready ? 'Tersambung' : 'Menyambung...',
-                  style: const TextStyle(color: inkSoft)),
+              Text(err ?? (ready ? 'Tersambung' : 'Menyambung...'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: err != null ? red : inkSoft)),
             ]),
           ),
           const SizedBox(height: 16),
@@ -272,32 +311,63 @@ class _TalkState extends State<Talk> {
           ),
           Expanded(
             child: Center(
-              child: GestureDetector(
-                onTapDown: (_) => _talk(true),
-                onTapUp: (_) => _talk(false),
-                onTapCancel: () => _talk(false),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 80),
-                  width: 200,
-                  height: 200,
-                  transform: Matrix4.translationValues(0, talking ? 6 : 0, 0),
-                  decoration: BoxDecoration(
-                    color: talking ? red : blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: ink, width: 4),
-                    boxShadow: [
-                      BoxShadow(color: ink, offset: Offset(0, talking ? 3 : 10), blurRadius: 0)
-                    ],
+              child: SizedBox(
+                width: 300,
+                height: 300,
+                child: Stack(alignment: Alignment.center, children: [
+                  if (talking)
+                    AnimatedBuilder(
+                      animation: pulse,
+                      builder: (_, __) => Stack(alignment: Alignment.center, children: [
+                        for (final o in [0.0, 0.5])
+                          Container(
+                            width: 200 + 90 * ((pulse.value + o) % 1.0),
+                            height: 200 + 90 * ((pulse.value + o) % 1.0),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: red.withOpacity(1 - ((pulse.value + o) % 1.0)),
+                                  width: 5),
+                            ),
+                          ),
+                      ]),
+                    ),
+                  GestureDetector(
+                    onTapDown: (_) => _talk(true),
+                    onTapUp: (_) => _talk(false),
+                    onTapCancel: () => _talk(false),
+                    child: AnimatedScale(
+                      scale: talking ? 0.88 : 1.0,
+                      duration: Duration(milliseconds: talking ? 120 : 600),
+                      curve: talking ? Curves.easeOut : Curves.elasticOut,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 80),
+                        width: 200,
+                        height: 200,
+                        transform: Matrix4.translationValues(0, talking ? 6 : 0, 0),
+                        decoration: BoxDecoration(
+                          color: talking ? red : blue,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: ink, width: 4),
+                          boxShadow: [
+                            BoxShadow(
+                                color: ink,
+                                offset: Offset(0, talking ? 3 : 10),
+                                blurRadius: 0)
+                          ],
+                        ),
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          const Icon(Icons.mic, size: 84, color: Colors.white),
+                          Text(talking ? 'CAKAP' : 'TAHAN', style: disp(22, c: Colors.white)),
+                        ]),
+                      ),
+                    ),
                   ),
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Icon(Icons.mic, size: 84, color: Colors.white),
-                    Text(talking ? 'CAKAP' : 'TAHAN', style: disp(22, c: Colors.white)),
-                  ]),
-                ),
+                ]),
               ),
             ),
           ),
-          Text(talking ? 'Sedang cakap...' : 'Tekan & tahan untuk cakap',
+          Text(talking ? (ready ? 'Sedang cakap...' : 'Belum tersambung') : 'Tekan & tahan untuk cakap',
               style: disp(18, c: inkSoft, w: FontWeight.w600)),
         ]),
       ),
