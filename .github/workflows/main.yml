@@ -52,7 +52,7 @@ jobs:
           }
           GRADLE
       - run: flutter pub get
-      - run: flutter build apk --release
+      - run: flutter build apk --release --dart-define=AGORA_CERT=${{ secrets.AGORA_CERT }}
       - uses: actions/upload-artifact@v4
         with:
           name: prowalkie-apk
