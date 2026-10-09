@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-const ground = Color(0xFFFFF3C9);
+const ground = Color(0xFF00704A); // hijau Starbucks
+const onGround = Colors.white;
+const onGroundSoft = Color(0xFFCFE6DD);
 const paper = Colors.white;
 const ink = Color(0xFF1F2A44);
 const inkSoft = Color(0xFF56607A);
@@ -35,7 +37,7 @@ ThemeData proTheme() {
 class _DotPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size s) {
-    final p = Paint()..color = const Color(0x121F2A44);
+    final p = Paint()..color = const Color(0x1AFFFFFF);
     for (double y = 1; y < s.height; y += 22) {
       for (double x = 1; x < s.width; x += 22) {
         canvas.drawCircle(Offset(x, y), 1.5, p);
